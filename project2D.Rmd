@@ -1,0 +1,161 @@
+---
+title: "Identifying Differentially Expressed Genes in Crohn's Disease"
+output: html_notebook
+---
+
+Introduction
+
+Scientific question: What is the most differentially expressed gene associated with Crohn’s disease from a 55,000 gene data set -- including samples of Crohn's patients and normal patients -- and is it conserved across the close phylogenetic relatives of homo sapiens, to include chimpanzees and gorillas?
+
+Crohn's disease is a type of inflammatory bowel disease. Genes commonly associated with inflammation caused by IBD and CD are called interleukins, which are a type of cytokines. There are over 50 interleukins found in the human genome, some of which are inflammatory cytokines (Brocker et al., 2010). 
+The most commonly identified IL genes in patients with Crohn's Disease are IL-10, IL-17, and IL-23. IL-23 activates Th17 cells, which in turn increases production of IL-17 (Zhu et al., 2018). The mRNA expression of IL-17 has been detected in CD3+ lymphocyte cells, CD4+ T cells, and CD68+ macrophage cells (Fujino et al., 2003). IL-23 has also been found to upregulate the expression of IL-10 (Vanden Eijnden et al., 2005). Each of these pathways leads to an increase in inflammation due to the increased expression of the inflammatory cytokines. Evidence suggests mammals including chimpanzees have interleukin genes that are commonly associated with inflammation (Burger et al., 1994), however, further analyses have not been done to identify if the most differentially expressed genes related to Crohn's in humans are also found in close phlogenetic relatives. 
+Although interleukin genes are commonly associated with the inflammation involved in Crohn's, there may be other genes and pathways associated. By analyzing this data set, I will determine other potential genes that are associated with Crohn's.
+
+Scientific hypothesis: If I analyze the gene expression analysis from 55,000 genes across 30 samples of Crohn's patients and 30 samples without Crohn's, then I can identify the most differentially expressed and upregulated gene associated with Crohn's and confirm the gene is conserved across close phylogenetic relatives of homo sapiens.
+
+I have downloaded a data set from NCBI GEO containing the gene expression levels of 55,000 genes with samples from Crohn's patients, ulceritive colitis patients, and normal; I will only be analyzing the samples of Crohn's and the control group. I will run RNASeq (DESeq) to identify the most differentially expressed genes in Crohn's vs the control group. In order to present this data, I will subset the top 10 positive and negative log2foldchange values, and use a heatmap to show gene expression levels of these 20 genes, which will be explained more below. I will also visualize the results using a volcano plot to show the log2foldchange values vs the -log(p-values) of the DESeq results. After obtaining the nucleotide sequence of the most differentially expressed and upregulated gene in Crohn's samples, I will run this fasta file through BLAST search to identify if the gene is conserved across close phylogenetic relatives of homo sapiens. 
+
+The data set used in this analysis includes over 55,000 genes; in order to narrow it down, I have used na.omit() to remove any lines in the data set that are either missing gene names or missing values. Because analyzing 170 total samples may be too much data for DESeq, I will be analyzing 30 samples from Crohn's patients and 30 samples from control patients.
+
+Package Descriptions
+Below are the packages necessary for running this code.
+1. pheatmap: "Pretty heat map" - This package is going to be used to create a visual heatmap for interpreting the gene expression data pulled from DESeq. This code will allow us to have more control over the dimensions and appearance of the heatmap.
+2. RColorBrewer: This package is used for specifying the colors of the pheatmap and is completely optional and up to the individual on what colors they want for the heatmap. This package includes specific color combinations.
+3. DESeq2: This package is used to run differential expression analysis on count data from a given data set (RNASeq). This code will output log2foldchange values and p-values of a given gene expression data set, which will later be used for the heatmap.
+4. Biostrings: "Manipulation of biological strings" - This package will be used to convert a fasta file to DNA string set.
+5. Annotate: This package will be used to run blastSequences() on the loaded fasta file as a DNA string set to identify any similar sequences from other species.
+6. seqinr: This package is used for retrieving and analyzing biological sequences, and will specifically be used to read in a FASTA file.
+7. apeglm: A package for shrinkage estimators in GLM coefficients - used for the lfcshrink() function after running DESeq.
+
+These packages will need to be loaded, as they are already installed in my R studio.
+
+```{r}
+library(pheatmap)
+library(RColorBrewer)
+library(DESeq2)
+library(Biostrings)
+library(annotate)
+library(seqinr)
+```
+
+The following package needed to be installed in order to use the apeglm paramemeter for lfcShrink after running DESeq.
+
+```{r}
+# #if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("apeglm")
+library(apeglm)
+```
+
+Performing Bioinformatics Analysis
+
+Below is the code needed to read in the gene expression normalized counts as a .tsv file.
+```{r}
+# gene_data is a list variable and a global variable
+gene_data <- read.table(file = "GSE165512_normalized_counts.tsv.gz", sep = "\t", header = TRUE)
+# typeof(gene_data)
+# print(gene_data)
+
+```
+
+I will now be omitting any empty values in the data frame with na.omit, then assigning vectors for DESeq.
+
+```{r}
+# Create count data: leave out gene ID column first
+# this is a list variable and global variable
+gene_norm <- gene_data[,-2]
+# removing any rows with "NA" as gene names or values
+gene_norm <- na.omit(gene_norm)
+# typeof(gene_norm)
+
+# Save gene expression data as matrix (numerical), this is a global variable
+gene_count <- as.matrix(gene_norm[1:52219, c(111:140, 2:31)])
+# print(gene_count)
+
+# Create metadata for colData value. list variable and global variable
+condition <- c(rep(c("control"), times = 30), rep(c("crohns"), times = 30))
+genotype <- gene_norm[1:60,]
+gene_meta <- data.frame(genotype, condition)
+# typeof(gene_meta)
+
+```
+Now the number of genes is down to 52,219.
+
+Now we will run DESeq. The function DESeqDataSetFromMatrix will run differential expression analysis on the normalized gene counts. The design is based on the condition, Crohn's vs control.
+
+```{r}
+# Run DESeq using gene_count and gene_meta global variables
+dds_gene <- DESeqDataSetFromMatrix(countData = round(gene_count), colData = gene_meta, design = ~ condition)
+# dds_gene is an S4 variable and global
+dds_gene <- DESeq(dds_gene)
+# setting reference level as the control
+dds_gene$condition <- relevel(dds_gene$condition, ref="control")
+res <- results(dds_gene)
+rownames(dds_gene) <- gene_norm[1:52219,1]
+summary(res)
+
+```
+
+Based on the summary of results, 2453 genes are upregulated in Crohn's and 5702 are downregulated.
+
+```{r}
+# Extract results and shrink log2 fold change. save as s4 global variable
+gene_res <- results(dds_gene, contrast = c("condition","crohns", "control"), alpha = 0.05, lfcThreshold = 0.32)
+gene_res <- lfcShrink(dds_gene, coef = 2, type = "apeglm")
+# create list variable and save as data.frame, global variable
+gene_res_all <- data.frame(gene_res)
+# subset gene results by log2FoldChange to get top 10 upregulated and downregulated
+sigGenes <- subset(gene_res_all, log2FoldChange > 4.11 | log2FoldChange < -8.6)
+# print(data.frame(sigGenes))
+
+```
+The most differentially expressed gene that is downregulated in Crohn's is RP11-2K6.2, while the most differentially expressed gene that is upregulated is PRAC1.
+
+Plotting the results
+
+First, we have to transform normalized counts before we can plot the heatmap. 
+
+```{r}
+# transform normalized counts. running vst() applies a variance stabilizing transformation to the count data
+vsd <- vst(dds_gene, blind = FALSE)
+
+# match significant gene names to the transformed data vsd to plot heatmap
+rows <- match(row.names(sigGenes), row.names(vsd))
+mat <- assay(vsd)[rows,]
+mat <- mat - rowMeans(mat)
+
+# plot heatmap
+coul <- colorRampPalette(brewer.pal(8, "PuBuGn"))(25)
+pheatmap(mat, col = coul, fontsize=7,fontsize_number = 0.4 * fontsize)
+```
+The heatmap shows the top 10 differentially expressed genes in Crohn's vs the control that are downregulated, and the top 10 differentially expressed genes that are upregulated. The log2 Fold Change is a log-ratio of the gene expression values in two conditions: Crohn's and control. A negative lfc value represents a gene that is downregulated in Crohn's vs the control, while a positive lfc value represents a gene that is upregulated in Crohn's vs the control. The legend on the right signifies log2foldchange values by color, on a scale of -2 to 6. 
+
+
+I will plot the results of DESeq as a volcano plot which is used to visualize the log2(foldchange) values vs the -log(p-values).
+
+```{r}
+# Plot results of DESeq to visualize data as a volcano plot. the plot() function is built into the base package of R.
+plot(res$log2FoldChange,  -log(res$padj), 
+      xlab="Log2(FoldChange)",
+      ylab="-Log(P-value)")
+abline(v=c(-2,2), col="darkgray", lty=2)
+
+#plot dispersion estimates
+plotDispEsts(dds_gene)
+```
+The volcano plot shows the general trend of the data, with a group of genes around the -25 lfc value while the rest are grouped between -10 and 5. The dispersion plot shows the variance in gene expression for the DESeq data, with the red line signifying the fitted line for the data shown. Based on the graphs, there do not appear to be any outliers and the data appears consistent.
+
+I have downloaded a FASTA file from NCBI for the gene PRAC1, which is the most differentially expressed and upregulated gene in Crohn's. I will run BLAST on this sequence to determine the top 10 hits.
+
+```{r}
+# list variable, global
+DNA_fasta <- read.fasta("PRAC1.fasta")
+# s4 variable, global
+DNA_PRAC1 <- readDNAStringSet("PRAC1.fasta", format="fasta")
+# run BLAST on s4 variable
+blastSequences(DNA_PRAC1, "nr", hitListSize="10", filter="L", expect="10", program="blastn", as=c("data.frame"))
+```
+The most differentially expressed gene found in the data set containing Crohn's samples of homo sapiens is PRAC1, which is a small nuclear protein. The PRAC1 gene has been found to be more expressed in tissues such as the prostate and colon, and has been linked to prostate cancer (Kim et al., 2015). This gene is found in close phylogenetic relatives of homo sapiens, but a lack of evidence exists to show if these species express the PRAC1 gene. 
+
+The BLAST search runs the PRAC1 nucleotide sequence through NCBI BLAST, and returns the top 10 matches here. There are 5 matches to close phylogenetic relatives of homo sapiens: Bonobo (Pan paniscus), Chimpanzee (Pan troglodytes), Gorilla (Gorilla gorilla), Orangutan (Pongo abelii), and Gibbon (Nomascus leucogenys). Each of these appears as "predicted," which means that although the nucleotide sequence of the PRAC1 gene is similar to these species, there is no experimental evidence showing that this gene is transcribed to produce a protein. The sequence match is as high as 98.85% for the Bonobo and as low as 86.10% for the Gibbon, however there is no evidence showing that the genomes' of these five species express this gene.
